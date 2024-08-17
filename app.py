@@ -4,6 +4,7 @@ from flair.models import SequenceTagger
 
 from transformers import AutoTokenizer
 import requests
+import time
 
 auth_token = "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"
 MaskedLM_ckpt='roberta-large'
@@ -27,22 +28,34 @@ def retrieve_target(input_str):
     tagger.predict(sentence)
     entities = [entity.text for entity in sentence.get_spans('ner') if entity.tag in NER_tag_list]
     return entities
+
 def prompt_sentiment_analysis(input_str):
     input_for_clf = input_str.split('<sep>')[1].strip()
     clf_output = query_clf({
         "inputs": input_for_clf,
         })
-    return clf_output
+    for attempt in range(10):
+        query_clf_output = query_clf({"inputs": input_for_clf})
+        if not isinstance(query_clf_output, list):
+            time.sleep(5)
+            continue
+        else:
+            return query_clf_output
+    return {'error': 'Max retries reached. The model is still loading.'}
 
 def prompt_mask_filling(input_str,tgt):
     prompt = "Given this [TGT] shares are likely to [MSK]."
     prompt = prompt.replace('[TGT]',tgt).replace('[MSK]',MaskedLM_tok.mask_token)
     input_str = input_str + '<sep>' + prompt
-    query_mlm_output = query_mlm({
-        "inputs": input_str,
-        })
-    max_output = max(query_mlm_output , key = lambda x:x['score'])
-    return max_output['sequence']
+    for attempt in range(10):
+        query_mlm_output = query_mlm({"inputs": input_str})
+        if not isinstance(query_mlm_output, list):
+            time.sleep(5)
+            continue
+        else:
+            max_output = max(query_mlm_output, key=lambda x: x['score'])
+            return max_output['sequence']
+    return {'error': 'Max retries reached. The model is still loading.'}
 
 def run_single_absa(input_str,tgt):
     mlm_output = prompt_mask_filling(input_str,tgt)
